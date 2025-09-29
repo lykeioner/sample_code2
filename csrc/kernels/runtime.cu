@@ -52,11 +52,10 @@ std::vector<uint8_t> get_unique_id() {
 #ifndef IBGDA_USE_AMO_OPS
 __global__ void ibgda_initialize_recv_queue(int rank) {
     auto thread_idx = static_cast<int>(threadIdx.x);
-    auto num_threads = static_cast<int>(blockDim.x);
-
     auto dst_rank = static_cast<int>(blockIdx.x);
-    if (dst_rank != rank) {
-        for (int qp_id = thread_idx; qp_id < ibgda_get_state()->num_rc_per_pe; qp_id += num_threads) {
+
+    if ((dst_rank != rank) && (get_lane_id() == 0)) {
+        for (int qp_id = thread_idx; qp_id < ibgda_get_state()->num_rc_per_pe; qp_id++) {
             auto qp = ibgda_get_rc(dst_rank, qp_id);
 
             // Clean some necessary variables

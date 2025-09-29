@@ -8,11 +8,13 @@ import torch.distributed as dist
 from typing import Optional
 
 
-def init_dist(local_rank: int, num_local_ranks: int, num_nodes=2):
+def init_dist(local_rank: int, num_local_ranks: int, num_nodes: int):
     # NOTES: you may rewrite this function with your own cluster settings
+    sit_version = '0.0.0.0'
     ip = os.getenv('MASTER_ADDR', '127.0.0.1')
     port = int(os.getenv('MASTER_PORT', '8361'))
     node_rank = int(os.getenv('RANK', 1))
+    print(f"{socket.getfqdn()}: init_dist: sit_version={sit_version}\n")
     print(f"{socket.getfqdn()}: init_dist: local_rank={local_rank}, node_rank={node_rank}, num_local_ranks={num_local_ranks}, num_nodes={num_nodes}\n")
     ### assert (num_local_ranks < 8 and num_nodes == 1) or num_local_ranks == 8
 

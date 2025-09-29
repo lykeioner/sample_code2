@@ -1,0 +1,82 @@
+From 5e96ca51ddfcd6097352547868639e43e00e1763 Mon Sep 17 00:00:00 2001
+From: Kashyap Desai <kashyap.desai@broadcom.com>
+Date: Wed, 10 Sep 2025 01:47:53 +0530
+Subject: [PATCH] DeepEP: initialize recv queue from lane_id zero
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Original function ibgda_initialize_recv_queue was attempting
+recv queue initialization from each possible thread.
+
+Below log snippet -
+ibgda_initialize_recv_queue 72 qp_id 0x1 lane 1 thread id 1 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x2 lane 2 thread id 2 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x3 lane 3 thread id 3 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x4 lane 4 thread id 4 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x5 lane 5 thread id 5 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x6 lane 6 thread id 6 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x7 lane 7 thread id 7 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x0 lane 0 thread id 0 block id 1 total thread 8/128
+
+This method allows multiple threads to initialize different
+qpn in parallel. Since post_send_lock which is per qp is used,
+the original method should be safe.
+In fact, here rq initialization only happens on different qpn.
+There is no possibility of within qp resource race condition.
+Somehow in this case, the RQ ring doorbell is not updated to
+the HW correctly. RQ doorbell data is 8 bytes and that should be safely
+handled through st_na_release() API as an atomic store operation.
+
+Fix - allow only lane_id zero to initialize each recv queues of available QP.
+
+Sample log snippet -
+ibgda_initialize_recv_queue 72 qp_id 0x0 lane 0 thread id 0 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x1 lane 0 thread id 0 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x2 lane 0 thread id 0 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x3 lane 0 thread id 0 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x4 lane 0 thread id 0 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x5 lane 0 thread id 0 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x6 lane 0 thread id 0 block id 1 total thread 8/128
+ibgda_initialize_recv_queue 72 qp_id 0x7 lane 0 thread id 0 block id 1 total thread 8/128
+
+Earlier - RQ doorbell ring using st_na_release() on same DPI region from multiple threads
+Now     - RQ doorbell ring using st_na_release() on same DPI region from single threads
+
+Note -
+Once this patch is committed, revert one of the workaround handled through below commit
+320c52be8e35 ("nvshmem: recv queue side handling of wrapping") from brcm_nvshmem.
+
+v1 -> trailing whitespace removed.
+
+Bug: DCSG-59143
+Change-Id: I5d1ace5546338dbd8b6b69b69a9ab8792d345d07
+Signed-off-by: Kashyap Desai <kashyap.desai@broadcom.com>
+Reviewed-on: https://gerrit-ccxsw.broadcom.net/c/DeepEP/+/238556
+Tested-by: Ccxsw Build <ccxsw.build@broadcom.com>
+Reviewed-by: Hongguang Gao <hongguang.gao@broadcom.com>
+---
+ csrc/kernels/runtime.cu | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/csrc/kernels/runtime.cu b/csrc/kernels/runtime.cu
+index 989db7a..8b9a181 100644
+--- a/csrc/kernels/runtime.cu
++++ b/csrc/kernels/runtime.cu
+@@ -53,10 +53,10 @@ std::vector<uint8_t> get_unique_id() {
+ __global__ void ibgda_initialize_recv_queue(int rank) {
+     auto thread_idx = static_cast<int>(threadIdx.x);
+     auto num_threads = static_cast<int>(blockDim.x);
+-
+     auto dst_rank = static_cast<int>(blockIdx.x);
+-    if (dst_rank != rank) {
+-        for (int qp_id = thread_idx; qp_id < ibgda_get_state()->num_rc_per_pe; qp_id += num_threads) {
++
++    if ((dst_rank != rank) && (get_lane_id() == 0)) {
++        for (int qp_id = thread_idx; qp_id < ibgda_get_state()->num_rc_per_pe; qp_id++) {
+             auto qp = ibgda_get_rc(dst_rank, qp_id);
+ 
+             // Clean some necessary variables
+-- 
+2.17.1
+

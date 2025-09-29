@@ -208,7 +208,8 @@ ibgda_poll_cq(nvshmemi_ibgda_device_cq_t *cq, uint64_t idx) {
             ld_na_relaxed(cq->prod_idx), cons_idx, cqe_idx,
             ld_na_relaxed(cq->sq_cons_idx), ld_na_relaxed(cq->cq_phase));
 #endif
-        if (bnxt_re_is_cqe_valid(flg_val, (uint32_t)ld_na_relaxed(cq->cq_phase))) {
+        // No need to check cq_phase for depth = 1 CQ
+        if (cq->ncqes == 1 || bnxt_re_is_cqe_valid(flg_val, (uint32_t)ld_na_relaxed(cq->cq_phase))) {
             cqe_idx = (cqe_idx + 1) % cq->ncqes;
             if (cqe_idx == 0)
                 atomicXor(reinterpret_cast<unsigned long long*>(cq->cq_phase), 0x1);
